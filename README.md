@@ -53,36 +53,49 @@ This project builds a full machine learning pipeline to predict **Loss Given Def
 - `credit-lgd-predictor.pdf` — full project walkthrough
 - `model.pkl` — trained regression model
 - `scaler.pkl` — fitted StandardScaler
-- `feature_names.pkl` — expected input columns
 - `lgd_deploy_data.xlsx` — new data for prediction
 - `README.md` — this file
 
 ---
 
-## 🛠️ Deployment Instructions
+## 🛠️ Deployment
+
+The final model was deployed on new data (`lgd_deploy_data.xlsx`) using the same preprocessing steps:
 
 ```python
 import pandas as pd
-import pickle
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LinearRegression
 
-# Load model and scaler
-with open("model.pkl", "rb") as f:
-    reg = pickle.load(f)
-
-with open("scaler.pkl", "rb") as f:
-    scaler = pickle.load(f)
-
-with open("feature_names.pkl", "rb") as f:
-    expected_columns = pickle.load(f)
-
-# Load new data
+# 1. Load new data
 deploy_data = pd.read_excel("lgd_deploy_data.xlsx")
 
-# Preprocess
-deploy_dummies = pd.get_dummies(deploy_data, drop_first=True)
-deploy_dummies = deploy_dummies.reindex(columns=expected_columns, fill_value=0)
-X_scaled = scaler.transform(deploy_dummies)
+# 2. Select final features
+deploy_data = deploy_data[[
+    'Income ($)', 'Loan Term (Months)', 'Debt to Income Ratio (%)',
+    'Previous Defaults', 'Employment History (Years)', 'Exposure Amount ($)'
+]]
 
-# Predict LGD%
-y_pred = reg.predict(X_scaled)
-deploy_data['lgd_prediction'] = y_pred
+# 3. Outlier capping
+q1 = deploy_data.quantile(0.25)
+q3 = deploy_data.quantile(0.75)
+iqr = q3 - q1
+lower = q1 - 1.5 * iqr
+upper = q3 + 1.5 * iqr
+
+for col in deploy_data.columns:
+    if deploy_data[col].dtypes != object:
+        deploy_data[col] = np.where(deploy_data[col] > upper[col], upper[col], deploy_data[col])
+        deploy_data[col] = np.where(deploy_data[col] < lower[col], lower[col], deploy_data[col])
+
+# 4. Scale inputs
+scaler = StandardScaler()
+scaler.fit(deploy_data)
+inputs_scaled = scaler.transform(deploy_data)
+data_scaled = pd.DataFrame(inputs_scaled, columns=deploy_data.columns)
+
+# 5. Predict LGD
+reg = LinearRegression()
+reg.fit(X_train_uni, y_train_uni)  # model was trained earlier
+data_scaled['predicted_LGD'] = reg.predict(data_scaled)
